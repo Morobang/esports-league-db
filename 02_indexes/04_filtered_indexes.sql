@@ -10,12 +10,16 @@
 -- a filtered index is dramatically smaller and faster than a full index.
 --
 -- Rules for filtered indexes in SQL Server:
---   1. The filter predicate must use simple comparisons (=, <>, IS NULL, IS NOT NULL)
---   2. Queries using the index MUST include the filter column in WHERE or be
---      able to prove the filter is satisfied
---   3. Statistics are maintained separately per filtered index
---   4. Not usable with parameterised queries unless OPTION (RECOMPILE) is added
---      or the query has a literal predicate matching the filter
+--   1. The filter predicate must reference base columns only — computed columns
+--      are NOT allowed in the WHERE clause even if PERSISTED.
+--   2. The filter predicate must use simple comparisons against literals
+--      (=, <>, <, >, IS NULL, IS NOT NULL). Column-to-column comparisons
+--      are not permitted.
+--   3. Queries using the index MUST include the filter column in WHERE or be
+--      able to prove the filter is satisfied.
+--   4. Statistics are maintained separately per filtered index.
+--   5. Not usable with parameterised queries unless OPTION (RECOMPILE) is added
+--      or the query has a literal predicate matching the filter.
 --
 -- =============================================================================
 
@@ -24,10 +28,12 @@ GO
 
 -- =============================================================================
 -- comp.player — Active players only
--- Most roster queries only care about is_active/status = 'Active'.
+-- Most roster queries only care about status = 'Active'.
 -- Full table scans on a growing player history table are wasteful.
 -- =============================================================================
 
+DROP INDEX IF EXISTS IX_filter_player_active ON comp.player;
+GO
 CREATE NONCLUSTERED INDEX IX_filter_player_active
     ON comp.player (team_id, role)
     INCLUDE (username, real_name, nationality, joined_at)
@@ -40,6 +46,8 @@ GO
 -- This one serves lookup queries efficiently.
 -- =============================================================================
 
+DROP INDEX IF EXISTS IX_filter_contract_active ON comp.contract;
+GO
 CREATE NONCLUSTERED INDEX IX_filter_contract_active
     ON comp.contract (team_id, end_date)
     INCLUDE (player_id, salary_monthly, currency, buyout_clause)
@@ -52,6 +60,8 @@ GO
 -- and let the query further filter by end_date range.
 -- =============================================================================
 
+DROP INDEX IF EXISTS IX_filter_contract_expiring ON comp.contract;
+GO
 CREATE NONCLUSTERED INDEX IX_filter_contract_expiring
     ON comp.contract (end_date, player_id)
     INCLUDE (team_id, salary_monthly, currency)
@@ -64,6 +74,8 @@ GO
 -- Scheduled and cancelled matches are dead weight for those queries.
 -- =============================================================================
 
+DROP INDEX IF EXISTS IX_filter_match_completed ON comp.match;
+GO
 CREATE NONCLUSTERED INDEX IX_filter_match_completed
     ON comp.match (tournament_id, played_at)
     INCLUDE (team_a_id, team_b_id, winner_id, score_a, score_b, stage, best_of)
@@ -76,6 +88,8 @@ GO
 -- This tiny filtered index makes that lookup near-instant.
 -- =============================================================================
 
+DROP INDEX IF EXISTS IX_filter_match_live ON comp.match;
+GO
 CREATE NONCLUSTERED INDEX IX_filter_match_live
     ON comp.match (tournament_id, played_at)
     INCLUDE (team_a_id, team_b_id, score_a, score_b, stage)
@@ -87,6 +101,8 @@ GO
 -- Dashboard and homepage queries for "current tournaments" are very frequent.
 -- =============================================================================
 
+DROP INDEX IF EXISTS IX_filter_tournament_active ON comp.tournament;
+GO
 CREATE NONCLUSTERED INDEX IX_filter_tournament_active
     ON comp.tournament (league_id, start_date)
     INCLUDE (name, format, prize_pool, currency, end_date)
@@ -99,6 +115,8 @@ GO
 -- Only a small fraction of rows have mvp_flag = 1.
 -- =============================================================================
 
+DROP INDEX IF EXISTS IX_filter_stat_mvp ON comp.player_stat;
+GO
 CREATE NONCLUSTERED INDEX IX_filter_stat_mvp
     ON comp.player_stat (player_id, match_id)
     INCLUDE (kills, deaths, assists, damage_dealt)
@@ -111,6 +129,8 @@ GO
 -- "Who gets first blood most often" — tiny filtered index.
 -- =============================================================================
 
+DROP INDEX IF EXISTS IX_filter_stat_first_blood ON comp.player_stat;
+GO
 CREATE NONCLUSTERED INDEX IX_filter_stat_first_blood
     ON comp.player_stat (player_id)
     INCLUDE (match_id, kills, damage_dealt)
@@ -123,6 +143,8 @@ GO
 -- Revenue reports, seat count, and attendance figures exclude Cancelled/Refunded.
 -- =============================================================================
 
+DROP INDEX IF EXISTS IX_filter_order_confirmed ON ops.ticket_order;
+GO
 CREATE NONCLUSTERED INDEX IX_filter_order_confirmed
     ON ops.ticket_order (tier_id, ordered_at)
     INCLUDE (fan_id, quantity, total_amount, currency)
@@ -130,18 +152,19 @@ CREATE NONCLUSTERED INDEX IX_filter_order_confirmed
 GO
 
 -- =============================================================================
--- ops.ticket_tier — Tiers with available seats
--- Ticket purchase flows only query tiers where seats are still available.
--- seats_avail is a PERSISTED computed column (total_seats - seats_sold),
--- which allows it to be used in a filtered index WHERE clause.
--- SQL Server does not allow column-to-column comparisons in filtered index
--- predicates, so filtering on the persisted computed column is the correct pattern.
+-- ops.ticket_tier — Tiers by event and price (regular NC index)
+-- SQL Server does not allow computed columns in a filtered index WHERE clause,
+-- even when PERSISTED. Since the "available seats" condition requires comparing
+-- seats_avail (computed) against a literal, a filtered index is not possible here.
+-- A regular NC index on (event_id, price) still accelerates ticket purchase lookups;
+-- the query itself filters on seats_avail > 0 after the seek.
 -- =============================================================================
 
-CREATE NONCLUSTERED INDEX IX_filter_tier_available
+DROP INDEX IF EXISTS IX_filter_tier_available ON ops.ticket_tier;
+GO
+CREATE NONCLUSTERED INDEX IX_nc_tier_by_event_price
     ON ops.ticket_tier (event_id, price)
-    INCLUDE (tier_name, total_seats, seats_sold, seats_avail, currency, sale_start, sale_end)
-    WHERE seats_avail > 0;
+    INCLUDE (tier_name, total_seats, seats_sold, seats_avail, currency, sale_start, sale_end);
 GO
 
 -- =============================================================================
@@ -149,6 +172,8 @@ GO
 -- Sponsor dashboards, team pages, and revenue queries only show active deals.
 -- =============================================================================
 
+DROP INDEX IF EXISTS IX_filter_sponsorship_active ON ops.sponsorship;
+GO
 CREATE NONCLUSTERED INDEX IX_filter_sponsorship_active
     ON ops.sponsorship (team_id, end_date)
     INCLUDE (sponsor_id, deal_value, currency, visibility_type)
@@ -160,6 +185,8 @@ GO
 -- Broadcast rights queries for live tournaments only need active agreements.
 -- =============================================================================
 
+DROP INDEX IF EXISTS IX_filter_rights_active ON ops.broadcast_rights;
+GO
 CREATE NONCLUSTERED INDEX IX_filter_rights_active
     ON ops.broadcast_rights (tournament_id, territory)
     INCLUDE (broadcaster_id, rights_type, fee, currency, end_date)
@@ -171,6 +198,8 @@ GO
 -- Marketing and analytics queries typically exclude deactivated accounts.
 -- =============================================================================
 
+DROP INDEX IF EXISTS IX_filter_fan_active ON ops.fan;
+GO
 CREATE NONCLUSTERED INDEX IX_filter_fan_active
     ON ops.fan (country, registered_at)
     INCLUDE (fan_id, username, favourite_team_id, last_login)
