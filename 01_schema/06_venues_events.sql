@@ -73,7 +73,7 @@ CREATE TABLE ops.ticket_tier (
     currency      NVARCHAR(5)     NOT NULL DEFAULT 'USD',
     total_seats   INT             NOT NULL,
     seats_sold    INT             NOT NULL DEFAULT 0,
-    seats_avail   AS (total_seats - seats_sold),   -- computed
+    seats_avail   AS (total_seats - seats_sold) PERSISTED,   -- persisted so filtered indexes can reference it
     sale_start    DATETIME2(0)    NULL,
     sale_end      DATETIME2(0)    NULL,
     created_at    DATETIME2(0)    NOT NULL DEFAULT SYSUTCDATETIME(),

@@ -20,41 +20,51 @@ GO
 -- PRIMARY        → core tables
 -- FG_STATS       → player_stat, player_rating (high read volume)
 -- FG_LOGS        → viewership_log, audit_log  (partitioned, append-heavy)
+--
+-- File paths are resolved dynamically from the SQL Server instance's own
+-- default data/log directories so this script runs on any machine without
+-- manual path changes.
 -- =============================================================================
 
+DECLARE @DataPath NVARCHAR(512) = CAST(SERVERPROPERTY('InstanceDefaultDataPath') AS NVARCHAR(512));
+DECLARE @LogPath  NVARCHAR(512) = CAST(SERVERPROPERTY('InstanceDefaultLogPath')  AS NVARCHAR(512));
+
+DECLARE @sql NVARCHAR(MAX) = N'
 CREATE DATABASE EsportsLeague
 ON PRIMARY
 (
-    NAME       = N'EsportsLeague_Primary',
-    FILENAME   = N'C:\SQLData\EsportsLeague_Primary.mdf',
+    NAME       = N''EsportsLeague_Primary'',
+    FILENAME   = N''' + @DataPath + N'EsportsLeague_Primary.mdf'',
     SIZE       = 64MB,
     MAXSIZE    = 2GB,
     FILEGROWTH = 64MB
 ),
 FILEGROUP FG_STATS
 (
-    NAME       = N'EsportsLeague_Stats',
-    FILENAME   = N'C:\SQLData\EsportsLeague_Stats.ndf',
+    NAME       = N''EsportsLeague_Stats'',
+    FILENAME   = N''' + @DataPath + N'EsportsLeague_Stats.ndf'',
     SIZE       = 128MB,
     MAXSIZE    = 4GB,
     FILEGROWTH = 128MB
 ),
 FILEGROUP FG_LOGS
 (
-    NAME       = N'EsportsLeague_Logs',
-    FILENAME   = N'C:\SQLData\EsportsLeague_Logs.ndf',
+    NAME       = N''EsportsLeague_Logs'',
+    FILENAME   = N''' + @DataPath + N'EsportsLeague_Logs.ndf'',
     SIZE       = 256MB,
     MAXSIZE    = 10GB,
     FILEGROWTH = 256MB
 )
 LOG ON
 (
-    NAME       = N'EsportsLeague_Log',
-    FILENAME   = N'C:\SQLData\EsportsLeague_Log.ldf',
+    NAME       = N''EsportsLeague_Log'',
+    FILENAME   = N''' + @LogPath + N'EsportsLeague_Log.ldf'',
     SIZE       = 64MB,
     MAXSIZE    = 2GB,
     FILEGROWTH = 64MB
-);
+)';
+
+EXEC sp_executesql @sql;
 GO
 
 -- =============================================================================

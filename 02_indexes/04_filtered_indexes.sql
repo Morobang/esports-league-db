@@ -131,14 +131,17 @@ GO
 
 -- =============================================================================
 -- ops.ticket_tier — Tiers with available seats
--- Ticket purchase flows only query tiers where seats_sold < total_seats.
--- Since this is a computed column, we filter on seats_sold < total_seats indirectly.
+-- Ticket purchase flows only query tiers where seats are still available.
+-- seats_avail is a PERSISTED computed column (total_seats - seats_sold),
+-- which allows it to be used in a filtered index WHERE clause.
+-- SQL Server does not allow column-to-column comparisons in filtered index
+-- predicates, so filtering on the persisted computed column is the correct pattern.
 -- =============================================================================
 
 CREATE NONCLUSTERED INDEX IX_filter_tier_available
     ON ops.ticket_tier (event_id, price)
-    INCLUDE (tier_name, total_seats, seats_sold, currency, sale_start, sale_end)
-    WHERE seats_sold < total_seats;
+    INCLUDE (tier_name, total_seats, seats_sold, seats_avail, currency, sale_start, sale_end)
+    WHERE seats_avail > 0;
 GO
 
 -- =============================================================================
