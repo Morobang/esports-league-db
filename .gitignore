@@ -1,0 +1,14 @@
+# Visual Studio cache and workspace files
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Build artifacts
+**/bin/
+**/obj/
+
+# OS generated files
+Thumbs.db
+Desktop.ini
